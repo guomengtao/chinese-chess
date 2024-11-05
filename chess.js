@@ -1,30 +1,53 @@
 class ChineseChess {
     constructor() {
-        this.canvas = document.getElementById('chessboard');
-        this.ctx = this.canvas.getContext('2d');
-        this.gridSize = 70;
-        this.pieceRadius = 30;
-        this.offsetX = 50;
-        this.offsetY = 50;
-        this.currentPlayer = 'red'; // 红方先手
-        this.selected = null;
-        this.pieces = this.initializePieces();
-        this.version = 'simple'; // 添加版本标记
-        this.moveCount = 1;
-        this.setupVersionControl();
-        this.soundEnabled = true;
-        this.possibleMoves = [];
-        this.setupSounds();
-        this.setupControls();
-        this.setupGameControls();
-        this.updateStatusBar();
-        this.moveHistory = [];
-        this.moveList = document.getElementById('moveList');
+        try {
+            this.canvas = document.getElementById('chessboard');
+            if (!this.canvas) {
+                throw new Error('Canvas element not found');
+            }
+            this.ctx = this.canvas.getContext('2d');
+            this.gridSize = 70;
+            this.pieceRadius = 30;
+            this.offsetX = 50;
+            this.offsetY = 50;
+            this.currentPlayer = 'red'; // 红方先手
+            this.selected = null;
+            this.pieces = this.initializePieces();
+            this.version = 'simple'; // 添加版本标记
+            this.moveCount = 1;
+            this.setupVersionControl();
+            this.soundEnabled = true;
+            this.possibleMoves = [];
+            this.setupSounds();
+            this.setupControls();
+            this.setupGameControls();
+            this.updateStatusBar();
+            this.moveHistory = [];
+            this.moveList = document.getElementById('moveList');
+            this.blinkingPiece = null;
+            this.blinkingInterval = null;
+            this.blinkingAlpha = 1;
+            this.blinkingDirection = -1;
+            this.lastMove = null;
+            this.repeatedMoves = new Map(); // 用于检测长将、长捉
+            this.touchedPiece = null; // 用于实现摸子走子规则
+            this.gameHistory = [];
+            this.aiLevel = 'easy';
+            this.setupEnhancedFeatures();
+            this.chess3d = null; // 用于存储3D版本实例
 
-        this.canvas.addEventListener('click', this.handleClick.bind(this));
-        this.drawBoard();
-        this.drawPieces();
-        this.loadTraditionalBoardImage();
+            // 添加事件监听
+            this.canvas.addEventListener('click', (event) => this.handleClick(event));
+
+            // 初始绘制
+            this.drawBoard();
+            this.drawPieces();
+
+            // 设置重置游戏按钮的事件监听
+            this.setupResetButton();
+        } catch (error) {
+            console.error('Error initializing chess game:', error);
+        }
     }
 
     initializePieces() {
@@ -96,7 +119,7 @@ class ChineseChess {
         this.ctx.strokeStyle = '#8b4513';
         this.ctx.lineWidth = 2;
 
-        // 绘制横线和竖线
+        // 绘制横线
         for (let i = 0; i < 10; i++) {
             this.ctx.beginPath();
             this.ctx.moveTo(this.offsetX, this.offsetY + i * this.gridSize);
@@ -104,11 +127,27 @@ class ChineseChess {
             this.ctx.stroke();
         }
 
+        // 绘制竖线，分上下两部分，但保留两侧竖线
         for (let i = 0; i < 9; i++) {
+            // 上半部分（0-4格）
             this.ctx.beginPath();
             this.ctx.moveTo(this.offsetX + i * this.gridSize, this.offsetY);
+            this.ctx.lineTo(this.offsetX + i * this.gridSize, this.offsetY + 4 * this.gridSize);
+            this.ctx.stroke();
+
+            // 下半部分（5-9格）
+            this.ctx.beginPath();
+            this.ctx.moveTo(this.offsetX + i * this.gridSize, this.offsetY + 5 * this.gridSize);
             this.ctx.lineTo(this.offsetX + i * this.gridSize, this.offsetY + 9 * this.gridSize);
             this.ctx.stroke();
+
+            // 在楚河汉界区域保留最外侧的竖线
+            if (i === 0 || i === 8) {
+                this.ctx.beginPath();
+                this.ctx.moveTo(this.offsetX + i * this.gridSize, this.offsetY + 4 * this.gridSize);
+                this.ctx.lineTo(this.offsetX + i * this.gridSize, this.offsetY + 5 * this.gridSize);
+                this.ctx.stroke();
+            }
         }
 
         // 绘制九宫格斜线
@@ -135,26 +174,46 @@ class ChineseChess {
         this.ctx.stroke();
 
         // 绘制楚河汉界
+        // 先绘制背景长方形（不包括两侧）
         this.ctx.fillStyle = '#ffedcc';
         this.ctx.fillRect(
-            this.offsetX, 
+            this.offsetX + this.gridSize, // 从第二条竖线开始
             this.offsetY + 4 * this.gridSize, 
-            8 * this.gridSize, 
+            6 * this.gridSize, // 只填充中间6格
             this.gridSize
         );
-        
-        // 重新绘制中间的竖线
-        for (let i = 0; i < 9; i++) {
-            this.ctx.beginPath();
-            this.ctx.moveTo(this.offsetX + i * this.gridSize, this.offsetY + 4 * this.gridSize);
-            this.ctx.lineTo(this.offsetX + i * this.gridSize, this.offsetY + 5 * this.gridSize);
-            this.ctx.stroke();
-        }
 
-        this.ctx.font = '30px Arial';
+        // 添加木纹效果到楚河汉界区域
+        const riverGradient = this.ctx.createLinearGradient(
+            this.offsetX + this.gridSize,
+            this.offsetY + 4 * this.gridSize,
+            this.offsetX + 7 * this.gridSize,
+            this.offsetY + 5 * this.gridSize
+        );
+        riverGradient.addColorStop(0, 'rgba(160, 82, 45, 0.1)');
+        riverGradient.addColorStop(0.5, 'rgba(160, 82, 45, 0.15)');
+        riverGradient.addColorStop(1, 'rgba(160, 82, 45, 0.1)');
+        this.ctx.fillStyle = riverGradient;
+        this.ctx.fillRect(
+            this.offsetX + this.gridSize,
+            this.offsetY + 4 * this.gridSize,
+            6 * this.gridSize,
+            this.gridSize
+        );
+
+        // 绘制楚河汉界文字
+        this.ctx.font = 'bold 32px KaiTi, SimSun';
         this.ctx.fillStyle = '#000';
-        this.ctx.fillText('楚 河', this.offsetX + 1.5 * this.gridSize, this.offsetY + 4.7 * this.gridSize);
-        this.ctx.fillText('漢 界', this.offsetX + 5.5 * this.gridSize, this.offsetY + 4.7 * this.gridSize);
+        this.ctx.textAlign = 'center';
+        this.ctx.textBaseline = 'middle';
+        this.ctx.fillText('楚 河', 
+            this.offsetX + 2 * this.gridSize, 
+            this.offsetY + 4.5 * this.gridSize
+        );
+        this.ctx.fillText('漢 界', 
+            this.offsetX + 6 * this.gridSize, 
+            this.offsetY + 4.5 * this.gridSize
+        );
     }
 
     drawPieces() {
@@ -162,10 +221,16 @@ class ChineseChess {
             const x = this.offsetX + piece.x * this.gridSize;
             const y = this.offsetY + piece.y * this.gridSize;
 
+            // 设置透明度
+            let alpha = 1;
+            if (piece === this.blinkingPiece) {
+                alpha = this.blinkingAlpha;
+            }
+
             // 绘制棋子阴影
             this.ctx.beginPath();
             this.ctx.arc(x + 2, y + 2, this.pieceRadius, 0, Math.PI * 2);
-            this.ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+            this.ctx.fillStyle = `rgba(0, 0, 0, ${0.2 * alpha})`;
             this.ctx.fill();
 
             // 绘制棋子背景
@@ -175,16 +240,18 @@ class ChineseChess {
                 x - 5, y - 5, 2,
                 x, y, this.pieceRadius
             );
-            gradient.addColorStop(0, '#fff');
-            gradient.addColorStop(1, '#f0f0f0');
+            gradient.addColorStop(0, `rgba(255, 255, 255, ${alpha})`);
+            gradient.addColorStop(1, `rgba(240, 240, 240, ${alpha})`);
             this.ctx.fillStyle = gradient;
             this.ctx.fill();
-            this.ctx.strokeStyle = '#000';
+            this.ctx.strokeStyle = `rgba(0, 0, 0, ${alpha})`;
             this.ctx.stroke();
 
             // 绘制棋子文字
             this.ctx.font = 'bold 24px Arial';
-            this.ctx.fillStyle = piece.color;
+            this.ctx.fillStyle = piece.color === 'red' ? 
+                `rgba(255, 0, 0, ${alpha})` : 
+                `rgba(0, 0, 0, ${alpha})`;
             this.ctx.textAlign = 'center';
             this.ctx.textBaseline = 'middle';
             this.ctx.fillText(piece.type, x, y);
@@ -195,43 +262,92 @@ class ChineseChess {
         const rect = this.canvas.getBoundingClientRect();
         const x = event.clientX - rect.left;
         const y = event.clientY - rect.top;
-
         const gridX = Math.round((x - this.offsetX) / this.gridSize);
         const gridY = Math.round((y - this.offsetY) / this.gridSize);
-
         const clickedPiece = this.pieces.find(p => p.x === gridX && p.y === gridY);
 
-        if (this.selected) {
+        // 如果是严格模式
+        if (this.version === 'strict') {
+            if (this.touchedPiece) {
+                if (this.isValidMove(this.touchedPiece, gridX, gridY)) {
+                    this.makeMove(this.touchedPiece, gridX, gridY);
+                }
+                this.touchedPiece = null;
+                return;
+            }
+
             if (clickedPiece && clickedPiece.color === this.currentPlayer) {
-                this.playSound('select');
+                this.touchedPiece = clickedPiece;
                 this.selected = clickedPiece;
                 this.possibleMoves = this.calculatePossibleMoves(clickedPiece);
-            } else {
-                if (this.isValidMove(this.selected, gridX, gridY)) {
-                    if (clickedPiece) {
-                        this.playSound('capture');
-                        this.pieces = this.pieces.filter(p => p !== clickedPiece);
-                    } else {
-                        this.playSound('move');
-                    }
-                    
-                    this.selected.x = gridX;
-                    this.selected.y = gridY;
-                    this.currentPlayer = this.currentPlayer === 'red' ? 'black' : 'red';
-                }
-                this.selected = null;
-                this.possibleMoves = [];
             }
-        } else if (clickedPiece && clickedPiece.color === this.currentPlayer) {
-            this.playSound('select');
-            this.selected = clickedPiece;
-            this.possibleMoves = this.calculatePossibleMoves(clickedPiece);
+        } else {
+            // 其他模式的处理逻辑
+            if (this.selected) {
+                if (clickedPiece && clickedPiece.color === this.currentPlayer) {
+                    // 如果点击了同色的其他棋子，更新选中的棋子
+                    this.playSound('select');
+                    this.selected = clickedPiece;
+                    this.blinkingPiece = clickedPiece;
+                    this.startBlinking();
+                    this.possibleMoves = this.calculatePossibleMoves(clickedPiece);
+                } else {
+                    // 尝试移动棋子
+                    if (this.isValidMove(this.selected, gridX, gridY)) {
+                        const fromX = this.selected.x;
+                        const fromY = this.selected.y;
+                        
+                        if (clickedPiece) {
+                            this.playSound('capture');
+                            this.pieces = this.pieces.filter(p => p !== clickedPiece);
+                        } else {
+                            this.playSound('move');
+                        }
+                        
+                        this.selected.x = gridX;
+                        this.selected.y = gridY;
+                        
+                        // 记录移动
+                        this.addMoveRecord(this.selected, fromX, fromY, gridX, gridY);
+                        
+                        // 切换玩家
+                        this.currentPlayer = this.currentPlayer === 'red' ? 'black' : 'red';
+                        if (this.currentPlayer === 'red') {
+                            this.moveCount++;
+                        }
+                        
+                        this.updateStatusBar();
+                        
+                        // 检查游戏是否结束
+                        if (this.checkGameOver()) {
+                            this.selected = null;
+                            this.stopBlinking();
+                            return;
+                        }
+
+                        // AI移动
+                        if (this.version === 'pro' && this.currentPlayer === 'black') {
+                            setTimeout(() => this.makeAIMove(), 500);
+                        }
+                    }
+                    this.selected = null;
+                    this.stopBlinking();
+                }
+            } else if (clickedPiece && clickedPiece.color === this.currentPlayer) {
+                this.playSound('select');
+                this.selected = clickedPiece;
+                this.blinkingPiece = clickedPiece;
+                this.startBlinking();
+                this.possibleMoves = this.calculatePossibleMoves(clickedPiece);
+            }
         }
 
+        // 重绘棋盘
         this.drawBoard();
         this.drawPossibleMoves();
         this.drawPieces();
 
+        // 如果有选中的棋子，绘制选中效果
         if (this.selected) {
             const x = this.offsetX + this.selected.x * this.gridSize;
             const y = this.offsetY + this.selected.y * this.gridSize;
@@ -249,6 +365,18 @@ class ChineseChess {
         versionSelect.addEventListener('change', () => {
             this.version = versionSelect.value;
             gameInfo.textContent = `当前版本：${this.getVersionName()}`;
+            
+            if (this.version === '3d') {
+                // 如果选择3D版本，创建新的3D画布
+                if (!document.getElementById('chessboard3d')) {
+                    const canvas3d = document.createElement('canvas');
+                    canvas3d.id = 'chessboard3d';
+                    canvas3d.width = 700;
+                    canvas3d.height = 800;
+                    this.canvas.parentNode.insertBefore(canvas3d, this.canvas);
+                }
+            }
+            
             this.updateGameFeatures();
             this.resetGame();
         });
@@ -259,7 +387,13 @@ class ChineseChess {
             'simple': '简单版',
             'standard': '标准版',
             'advanced': '高级版',
-            'pro': '专业版'
+            'pro': '专业版',
+            'master': '大师版',
+            'traditional': '传统版',
+            'strict': '严格版',
+            'enhanced': '加强版',
+            '3d': '3D立体版',
+            'animated3d': '动画立体棋盘'
         };
         return versionNames[this.version] || '未知版本';
     }
@@ -286,6 +420,53 @@ class ChineseChess {
                 this.soundEnabled = true;
                 this.showHints = true;
                 this.enableAI = true;
+                break;
+            case 'master':
+                this.useFullRules = true;
+                this.soundEnabled = true;
+                this.showHints = true;
+                this.strictMode = true;
+                break;
+            case 'traditional':
+                this.useFullRules = true;
+                this.soundEnabled = true;
+                this.showHints = true;
+                break;
+            case 'strict':
+                this.useFullRules = true;
+                this.soundEnabled = true;
+                this.showHints = true;
+                this.strictMode = true;
+                break;
+            case '3d':
+                // 切换到3D版本
+                this.canvas.style.display = 'none';
+                let canvas3d = document.getElementById('chessboard3d');
+                if (canvas3d) {
+                    canvas3d.style.display = 'block';
+                    if (!this.chess3d) {
+                        this.chess3d = new ChineseChess3D();
+                    }
+                }
+                break;
+            case 'animated3d':
+                // 切换到动画立体棋盘版本
+                this.canvas.style.display = 'none';
+                let canvas3d = document.getElementById('chessboard3d');
+                if (canvas3d) {
+                    canvas3d.style.display = 'block';
+                    if (!this.chessboardAnimation) {
+                        this.chessboardAnimation = new ChessboardAnimation();
+                    }
+                }
+                break;
+            default:
+                // 切换回2D版本
+                this.canvas.style.display = 'block';
+                canvas3d = document.getElementById('chessboard3d');
+                if (canvas3d) {
+                    canvas3d.style.display = 'none';
+                }
                 break;
         }
         this.updateControls();
@@ -417,9 +598,23 @@ class ChineseChess {
     }
 
     setupSounds() {
-        this.moveSound = document.getElementById('moveSound');
-        this.captureSound = document.getElementById('captureSound');
-        this.selectSound = document.getElementById('selectSound');
+        try {
+            this.moveSound = document.getElementById('moveSound');
+            this.captureSound = document.getElementById('captureSound');
+            this.selectSound = document.getElementById('selectSound');
+            this.gameOverSound = document.getElementById('gameOverSound');
+
+            // 添加错误处理
+            [this.moveSound, this.captureSound, this.selectSound, this.gameOverSound].forEach(sound => {
+                if (sound) {
+                    sound.addEventListener('error', (e) => {
+                        console.warn(`Error loading sound: ${e.target.src}`);
+                    });
+                }
+            });
+        } catch (error) {
+            console.warn('Error setting up sounds:', error);
+        }
     }
 
     setupControls() {
@@ -433,19 +628,20 @@ class ChineseChess {
     playSound(type) {
         if (!this.soundEnabled) return;
         
-        switch(type) {
-            case 'move':
-                this.moveSound.currentTime = 0;
-                this.moveSound.play();
-                break;
-            case 'capture':
-                this.captureSound.currentTime = 0;
-                this.captureSound.play();
-                break;
-            case 'select':
-                this.selectSound.currentTime = 0;
-                this.selectSound.play();
-                break;
+        try {
+            const sound = {
+                'move': this.moveSound,
+                'capture': this.captureSound,
+                'select': this.selectSound,
+                'gameOver': this.gameOverSound
+            }[type];
+
+            if (sound && sound.readyState >= 2) {
+                sound.currentTime = 0;
+                sound.play().catch(e => console.warn('Error playing sound:', e));
+            }
+        } catch (error) {
+            console.warn('Error playing sound:', error);
         }
     }
 
@@ -477,11 +673,24 @@ class ChineseChess {
     }
 
     resetGame() {
-        this.pieces = this.initializePieces();
-        this.selected = null;
-        this.currentPlayer = 'red';
-        this.drawBoard();
-        this.drawPieces();
+        if (this.version === '3d') {
+            if (this.chess3d) {
+                this.chess3d.resetGame();
+            }
+        } else {
+            // 原有的重置逻辑
+            this.stopBlinking();
+            this.pieces = this.initializePieces();
+            this.selected = null;
+            this.currentPlayer = 'red';
+            this.moveCount = 1;
+            this.moveHistory = [];
+            this.possibleMoves = [];
+            this.updateStatusBar();
+            this.updateMoveList();
+            this.drawBoard();
+            this.drawPieces();
+        }
     }
 
     enableFullRules() {
@@ -630,7 +839,7 @@ class ChineseChess {
                 // 未过河，只能向前
                 return dx === 0 && dy === -1;
             } else {
-                // 过���后，可以左右或向���
+                // 过河后，可以左右或向前
                 return (dx === 1 && dy === 0) || (dx === 0 && dy === -1);
             }
         } else {
@@ -700,7 +909,7 @@ class ChineseChess {
             return false;
         }
 
-        // 检查象心
+        // 查象心
         const centerX = piece.x + (targetX - piece.x) / 2;
         const centerY = piece.y + (targetY - piece.y) / 2;
         return !this.pieces.some(p => p.x === centerX && p.y === centerY);
@@ -763,18 +972,22 @@ class ChineseChess {
         const blackKing = this.pieces.find(p => p.type === '将');
 
         if (!redKing) {
-            this.showGameOver('黑方胜利！');
+            this.showGameOver('游戏结束', '红方帅被吃，黑方获胜！');
             return true;
         }
         if (!blackKing) {
-            this.showGameOver('红方胜利！');
+            this.showGameOver('游戏结束', '黑方将被吃，红方获胜！');
             return true;
         }
 
-        // 检查是否被将军
+        // 检是否被将军
         if (this.isCheck(this.currentPlayer)) {
             if (this.isCheckmate(this.currentPlayer)) {
-                this.showGameOver(`${this.currentPlayer === 'red' ? '黑' : '红'}方胜利！`);
+                this.showGameOver(
+                    '将军认输', 
+                    `${this.currentPlayer === 'red' ? '红方' : '黑方'}被将军，无法脱困！\n` +
+                    `${this.currentPlayer === 'red' ? '黑方' : '红方'}获胜！`
+                );
                 return true;
             }
         }
@@ -782,12 +995,13 @@ class ChineseChess {
         return false;
     }
 
-    showGameOver(message) {
+    showGameOver(title, message) {
         const modal = document.getElementById('gameOverModal');
         const messageElement = document.getElementById('gameOverMessage');
-        messageElement.textContent = message;
+        messageElement.innerHTML = `<h3>${title}</h3><p>${message}</p>`;
         modal.style.display = 'block';
         this.playSound('gameOver');
+        this.stopBlinking(); // 停止所有闪烁效果
     }
 
     isCheck(color) {
@@ -965,6 +1179,373 @@ class ChineseChess {
                 const posY = this.offsetY + y * this.gridSize;
                 drawMark(posX, posY);
             });
+        });
+    }
+
+    startBlinking() {
+        if (this.blinkingInterval) {
+            clearInterval(this.blinkingInterval);
+        }
+        this.blinkingInterval = setInterval(() => {
+            this.blinkingAlpha += this.blinkingDirection * 0.1;
+            if (this.blinkingAlpha <= 0.3) {
+                this.blinkingDirection = 1;
+            } else if (this.blinkingAlpha >= 1) {
+                this.blinkingDirection = -1;
+            }
+            this.drawBoard();
+            this.drawPossibleMoves();
+            this.drawPieces();
+        }, 50);
+    }
+
+    stopBlinking() {
+        if (this.blinkingInterval) {
+            clearInterval(this.blinkingInterval);
+            this.blinkingInterval = null;
+        }
+        this.blinkingPiece = null;
+        this.blinkingAlpha = 1;
+    }
+
+    makeMove(piece, targetX, targetY) {
+        const originalX = piece.x;
+        const originalY = piece.y;
+        const targetPiece = this.pieces.find(p => p.x === targetX && p.y === targetY);
+
+        // 记录移动前的状态
+        const moveRecord = {
+            piece: piece,
+            fromX: originalX,
+            fromY: originalY,
+            toX: targetX,
+            toY: targetY,
+            capturedPiece: targetPiece
+        };
+
+        // 执行移动
+        if (targetPiece) {
+            this.pieces = this.pieces.filter(p => p !== targetPiece);
+            this.playSound('capture');
+        } else {
+            this.playSound('move');
+        }
+
+        piece.x = targetX;
+        piece.y = targetY;
+
+        // 检查是否违反规则
+        if (this.isIllegalMove(moveRecord)) {
+            // 恢复移动前的状态
+            piece.x = originalX;
+            piece.y = originalY;
+            if (targetPiece) {
+                this.pieces.push(targetPiece);
+            }
+            return false;
+        }
+
+        // 记录移动
+        this.moveHistory.push(moveRecord);
+        this.lastMove = moveRecord;
+        this.updateRepeatedMoves(moveRecord);
+
+        // 更新游戏状态
+        this.currentPlayer = this.currentPlayer === 'red' ? 'black' : 'red';
+        this.selected = null;
+        this.possibleMoves = [];
+
+        // 检查游戏��束条件
+        this.checkGameOver();
+
+        return true;
+    }
+
+    isIllegalMove(moveRecord) {
+        // 检查长将
+        if (this.isLongJiang(moveRecord)) {
+            this.showWarning('禁止长将！');
+            return true;
+        }
+
+        // 检查长捉
+        if (this.isLongZhuo(moveRecord)) {
+            this.showWarning('禁止长捉！');
+            return true;
+        }
+
+        // 检查将帅对面
+        if (this.isKingsDirectlyFacing()) {
+            this.showWarning('将帅不能直接对面！');
+            return true;
+        }
+
+        return false;
+    }
+
+    isLongJiang(moveRecord) {
+        // 检查最近6步是否存在相同的将军局面
+        const recentMoves = this.moveHistory.slice(-6);
+        let jiangCount = 0;
+        
+        for (const move of recentMoves) {
+            if (this.isCheck(this.getOppositeColor(move.piece.color))) {
+                jiangCount++;
+            }
+        }
+
+        return jiangCount >= 3;
+    }
+
+    isLongZhuo(moveRecord) {
+        // 检查最近6步是否存在相同的捉子局面
+        const key = this.getBoardStateKey();
+        const count = this.repeatedMoves.get(key) || 0;
+        return count >= 3;
+    }
+
+    isKingsDirectlyFacing() {
+        const redKing = this.pieces.find(p => p.type === '帅');
+        const blackKing = this.pieces.find(p => p.type === '将');
+
+        if (redKing && blackKing && redKing.x === blackKing.x) {
+            // 检查两个将之间是否有其他棋子
+            const minY = Math.min(redKing.y, blackKing.y);
+            const maxY = Math.max(redKing.y, blackKing.y);
+            
+            for (let y = minY + 1; y < maxY; y++) {
+                if (this.pieces.some(p => p.x === redKing.x && p.y === y)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+
+    showWarning(message) {
+        // 显示警告信息
+        const modal = document.getElementById('gameOverModal');
+        const messageElement = document.getElementById('gameOverMessage');
+        messageElement.innerHTML = `<h3>警告</h3><p>${message}</p>`;
+        modal.style.display = 'block';
+        setTimeout(() => {
+            modal.style.display = 'none';
+        }, 2000);
+    }
+
+    getBoardStateKey() {
+        // 生成当前棋盘状态的唯一键
+        return this.pieces.map(p => `${p.type}${p.color}${p.x}${p.y}`).sort().join('|');
+    }
+
+    updateRepeatedMoves(moveRecord) {
+        const key = this.getBoardStateKey();
+        this.repeatedMoves.set(key, (this.repeatedMoves.get(key) || 0) + 1);
+    }
+
+    setupEnhancedFeatures() {
+        if (this.version === 'enhanced') {
+            this.setupAIControls();
+            this.setupGameControls();
+            this.setupTutorial();
+            this.loadSavedGames();
+        }
+    }
+
+    setupAIControls() {
+        const aiSelect = document.getElementById('aiLevel');
+        aiSelect.addEventListener('change', (e) => {
+            this.aiLevel = e.target.value;
+            this.updateAIBehavior();
+        });
+    }
+
+    updateAIBehavior() {
+        switch(this.aiLevel) {
+            case 'easy':
+                this.aiSearchDepth = 1;
+                break;
+            case 'medium':
+                this.aiSearchDepth = 2;
+                break;
+            case 'hard':
+                this.aiSearchDepth = 3;
+                break;
+            case 'expert':
+                this.aiSearchDepth = 4;
+                break;
+        }
+    }
+
+    // 存档功能
+    saveGame() {
+        const gameState = {
+            pieces: this.pieces,
+            currentPlayer: this.currentPlayer,
+            moveHistory: this.moveHistory,
+            version: this.version,
+            timestamp: new Date().toISOString()
+        };
+        
+        const saves = JSON.parse(localStorage.getItem('chessGames') || '[]');
+        saves.push(gameState);
+        localStorage.setItem('chessGames', JSON.stringify(saves));
+        
+        this.showMessage('游戏已保存');
+    }
+
+    // 加载存档
+    loadGame(saveData) {
+        this.pieces = saveData.pieces;
+        this.currentPlayer = saveData.currentPlayer;
+        this.moveHistory = saveData.moveHistory;
+        this.version = saveData.version;
+        
+        this.drawBoard();
+        this.drawPieces();
+        this.updateMoveList();
+    }
+
+    // 悔棋功能
+    undoMove() {
+        if (this.moveHistory.length === 0) return;
+        
+        const lastMove = this.moveHistory.pop();
+        const piece = lastMove.piece;
+        
+        // 恢复位置
+        piece.x = lastMove.fromX;
+        piece.y = lastMove.fromY;
+        
+        // 恢复被吃的棋子
+        if (lastMove.capturedPiece) {
+            this.pieces.push(lastMove.capturedPiece);
+        }
+        
+        this.currentPlayer = this.currentPlayer === 'red' ? 'black' : 'red';
+        this.drawBoard();
+        this.drawPieces();
+        this.updateMoveList();
+    }
+
+    // 教程系统
+    setupTutorial() {
+        const tutorials = {
+            basic: {
+                title: '基础规则',
+                content: '象棋基本规则说明...'
+            },
+            pieces: {
+                title: '棋子走法',
+                content: '详细的子走法说明...'
+            },
+            strategy: {
+                title: '基本战术',
+                content: '象棋战术入门...'
+            }
+        };
+
+        const tutorialContent = document.querySelector('.tutorial-content');
+        Object.entries(tutorials).forEach(([key, tutorial]) => {
+            const section = document.createElement('div');
+            section.innerHTML = `
+                <h3>${tutorial.title}</h3>
+                <p>${tutorial.content}</p>
+            `;
+            tutorialContent.appendChild(section);
+        });
+    }
+
+    // 增强的 AI 系统
+    makeEnhancedAIMove() {
+        const move = this.findBestMoveWithDepth(this.currentPlayer, this.aiSearchDepth);
+        if (move) {
+            this.makeMove(move.piece, move.targetX, move.targetY);
+        }
+    }
+
+    findBestMoveWithDepth(color, depth) {
+        if (depth === 0) {
+            return this.evaluatePosition();
+        }
+
+        let bestScore = color === 'black' ? -Infinity : Infinity;
+        let bestMove = null;
+
+        const pieces = this.pieces.filter(p => p.color === color);
+        
+        for (const piece of pieces) {
+            const moves = this.calculatePossibleMoves(piece);
+            for (const move of moves) {
+                // 尝试移动
+                const originalState = this.saveBoardState();
+                this.makeMove(piece, move.x, move.y);
+                
+                // 递归评估
+                const score = this.findBestMoveWithDepth(
+                    color === 'red' ? 'black' : 'red',
+                    depth - 1
+                );
+
+                // 恢复状态
+                this.restoreBoardState(originalState);
+
+                // 更新最佳移动
+                if (color === 'black' && score > bestScore) {
+                    bestScore = score;
+                    bestMove = { piece, targetX: move.x, targetY: move.y };
+                } else if (color === 'red' && score < bestScore) {
+                    bestScore = score;
+                    bestMove = { piece, targetX: move.x, targetY: move.y };
+                }
+            }
+        }
+
+        return bestMove;
+    }
+
+    // 增强的局面评估
+    evaluateEnhancedPosition() {
+        let score = this.evaluateBasicPosition();
+        
+        // 加入位置价值评估
+        score += this.evaluatePositionalValue();
+        
+        // 加入机动性评估
+        score += this.evaluateMobility();
+        
+        // 加入制力评估
+        score += this.evaluateControl();
+        
+        return score;
+    }
+
+    evaluatePositionalValue() {
+        // 实现位置价值评估
+        return 0;
+    }
+
+    evaluateMobility() {
+        // 实现���动性评估
+        return 0;
+    }
+
+    evaluateControl() {
+        // 实现控制力评估
+        return 0;
+    }
+
+    setupResetButton() {
+        // 主界面的重新开始按钮
+        const resetButton = document.getElementById('resetGame');
+        resetButton.addEventListener('click', () => this.resetGame());
+
+        // 游戏结束弹窗中的重新开始按钮
+        const restartButton = document.getElementById('restartButton');
+        restartButton.addEventListener('click', () => {
+            this.resetGame();
+            document.getElementById('gameOverModal').style.display = 'none';
         });
     }
 }

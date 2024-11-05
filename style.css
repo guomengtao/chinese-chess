@@ -135,4 +135,30 @@ canvas {
 .modal-content h2 {
     margin: 0 0 20px 0;
     color: #333;
+}
+
+.modal-content h3 {
+    color: #e74c3c;
+    margin-bottom: 10px;
+    font-size: 24px;
+}
+
+.modal-content p {
+    color: #333;
+    font-size: 18px;
+    margin-bottom: 20px;
+    line-height: 1.5;
+}
+
+#chessboard3d {
+    display: none; /* 默认隐藏3D画布 */
+    background-color: #ffedcc;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
+    border-radius: 8px;
+}
+
+/* 添加3D版本特有的样式 */
+.version-3d .game-board-container {
+    perspective: 1000px;
+    transform-style: preserve-3d;
 } 
