@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>中国象棋</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="game-container">
+        <div class="game-controls">
+            <select id="versionSelect">
+                <option value="simple">简单版 - 自由走子</option>
+                <option value="standard">标准版 - 正规规则</option>
+                <option value="advanced">高级版 - 带提示音效</option>
+                <option value="pro">专业版 - 带AI对战</option>
+                <option value="master">大师版 - 智能AI对战</option>
+                <option value="traditional">传统版 - 木纹棋盘</option>
+            </select>
+            <button id="toggleSound">音效：开</button>
+            <button id="resetGame">重新开始</button>
+            <span id="gameInfo">当前版本：简单版</span>
+        </div>
+        <div class="status-bar">
+            <span id="currentPlayer">当前回合：红方</span>
+            <span id="moveCount">回合数：1</span>
+        </div>
+        <div class="game-board-container">
+            <canvas id="chessboard" width="700" height="800"></canvas>
+            <div class="move-history">
+                <h3>棋谱记录</h3>
+                <div id="moveList"></div>
+            </div>
+        </div>
+        <!-- 预加载音效 -->
+        <audio id="moveSound" src="https://cdn.jsdelivr.net/gh/lichess-org/lila@master/public/sound/standard/Move.mp3" preload="auto"></audio>
+        <audio id="captureSound" src="https://cdn.jsdelivr.net/gh/lichess-org/lila@master/public/sound/standard/Capture.mp3" preload="auto"></audio>
+        <audio id="selectSound" src="https://cdn.jsdelivr.net/gh/lichess-org/lila@master/public/sound/standard/Click.mp3" preload="auto"></audio>
+        <audio id="gameOverSound" src="https://cdn.jsdelivr.net/gh/lichess-org/lila@master/public/sound/standard/Victory.mp3" preload="auto"></audio>
+    </div>
+    <div id="gameOverModal" class="modal">
+        <div class="modal-content">
+            <h2 id="gameOverMessage"></h2>
+            <button onclick="window.game.resetGame()">重新开始</button>
+        </div>
+    </div>
+    <script src="chess.js"></script>
+</body>
+</html> 
